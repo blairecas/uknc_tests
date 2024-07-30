@@ -1,0 +1,341 @@
+	.title	MAIN
+	.mcall	.print .exit .setto
+	.enabl	LC ; without AMA, contains relocatable code
+	
+	.asect
+	.=1000
+
+Start:	.print	#MsgHello
+	call	GetAllMem
+	mtps	#200
+
+	; start PPU code
+	mov	#PpuStart, R4
+	mov	#PpuEnd-PpuStart/2, R5
+	call	PPRun
+
+	; wait for PPU finish his work
+	tst	PpuComm
+	bne	.-4
+
+	; release PPU memory
+	call	PPRele
+
+	; exiting
+	mtps	#0
+	mov	ErrCode, @#52			; set error to exit from .COM files if needed
+	clr	R0				; .hreset before .exit
+	.exit
+
+ErrCode:	.word	0
+MsgHello:	.asciz	"Test beeper tones"
+		.even
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // Memory and utils
+; //////////////////////////////////////////////////////////////////////////////
+
+RamTop:		.word	0			; top addr of available RAM
+
+MsgSettop:	.asciz	"? can't use all memory (.settop failed)"
+MsgNoMemory:	.asciz	"? can't allocate memory up to 100000"
+		.even 
+
+; code from Alex_K
+GetAllMem:
+	mov	@#54, R0			; addr of RMON
+	mov	266(R0), R0			; addr of USR? (in case of set USR SWAP)
+	tst	-(R0)				; -2 bytes
+	.setto
+	bcc	10$
+	.print	#MsgSettop
+	.exit
+10$:	mov	R0, RamTop
+	cmp	R0, #100000			; at least top must be 100000 (i want so :)
+	bhis	20$
+	.print	#MsgNoMemory
+	.exit
+20$:	; and clear memory to top from end of code
+	mov	#PpuEnd, R0
+	mov	RamTop, R3
+	sub	R0, R3
+	clrb	(R0)+
+	sob	R3, .-2
+	return 
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU <-> PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+MsgPpuNoMem:	
+	.asciz	"? unable to allocate memory in PPU"
+	.even
+
+; PPU message
+;
+PPmsg:	.word	PPArr				; address of beginning of array
+        .word	177777				; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0				; return value (0 - OK)
+PPCmd:	.byte	0				; command
+	.word	32				; device type (32 - PPU mem)
+PPApp:	.word	0				; address for PPU
+PPAcp:	.word	0				; address for CPU
+PPLen:	.word	0				; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0			; array address
+	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674			; test if we are ready to send
+	bpl	1$				; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPRun:	movb	#1, PPCmd			; 1 - allocate memory
+	mov	R5, PPLen
+	call	PPSen
+	tstb	PPArr				; test if allocate success
+	beq	1$				; 0 - OK
+	.print	#MsgPpuNoMem
+	.exit					; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd			; 20 - write to PPU mem
+	mov	R5, PPLen
+	mov 	R4, PPAcp
+	call	PPSen
+	movb	#30, PPCmd			; 30 - run
+	call	PPSen
+	return
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd			; 2 - release memory
+	call	PPSen
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // PPU code start
+; //////////////////////////////////////////////////////////////////////////////
+
+PpuStart:
+	mtps	#200
+	clr	R0
+	call	@7132(R0)			; stop FD motor
+
+	; damn that hacks - need to correct memory descriptors
+	mov	PC, R0
+	add	#PpuStart-., R0			; start of program
+	mov	#PpuEnd-PpuStart, -(R0)		; write length of current PPU code block
+	sub	#4, R0				; addr of our descriptor
+	mov	PC, R1
+	add	#PpuEnd-., R1			; end of program
+	mov	#77772, R2
+	sub	R1, R2				; length of free block (assume our program is last though it's incorrect)
+	clr	(R1)+				; 'free'
+	mov	R0, (R1)+			; addr of previous descriptor
+	mov	R2, (R1)+			; length of free mem
+
+;	mov	#70000, R0
+;	mov	#1000, R3
+;	clr	(R0)+
+;	sob	R3, .-2
+;
+;	mov	PC, R0
+;	add	#RtiAdr-., R0
+;	clr	R1
+;	mov	#70000, R2
+;10$:	mov	0(R0), 0(R2)
+;	mov	2(R0), 2(R2)
+;	mov	4(R0), 4(R2)
+;	mov	6(R0), 6(R2)
+;	cmp	R1, #0
+;	beq	20$
+;	cmp	R1, #270
+;	beq	20$
+;	mov	R2, 0(R1)
+;	mov	#200, 2(R1)
+;20$:	add	#4, R1
+;	add	#10, R2
+;	cmp	R1, #520
+;	blo	10$
+
+	; timers
+	; bits 8, 9 - CPU, PPU vsync int (1 is off)
+	bis	#^B0000001000000000, @#177054	; disable vsync in PPU
+	bis	#^B0000000100000000, @#177054	; disable vsync in CPU
+	bic	#^B0001111110000000, @#177716	; sound init (mixer off)
+	call	TimerInit			; init pp timer
+ 
+;	mov	#177, @#177103 
+;	mov	#7, @#177364
+;	movb	#377, @#177364
+;	mov	#16, @#177364
+
+	mov	@#304, Int304
+	mov	@#306, Int306
+	call	MusStart
+
+	mtps	#0
+
+; main PPU loop
+PpMain:	inc	#000000
+	cmp	PpMain+2, #20000
+	bne	PpMain
+	clr	PpMain+2
+	call	MusPro
+	tst	MusCur
+	bne	PpMain
+
+; exit PPU code
+PpuExit:
+	mtps	#200
+	mov	Int304, @#304
+	mov	Int306, @#306
+	bic	#^B0000001000000000, @#177054	; enable vsync in PPU
+	bic	#^B0000000100000000, @#177054	; enable vsync in CPU
+	call	PpuDone
+	mtps	#0
+	return
+
+; set flag as 'done'
+PpuDone:
+	mov	#PpuComm/2, @#177010		; signal to CPU that we are finished
+	clr	@#177014
+	return
+
+RtiAdr:	inc	#0
+	nop
+	rti
+
+
+; // Sound /////////////////////////////////////////////////////////////////////
+
+; pp timer ready wait
+TimerInit:
+	clr	@#177710
+	tst	@#177714
+	tst	@#177710
+	bne	TimerInit
+	return
+
+
+.radix 10
+
+; notes for 4mks timer
+NotPad:	.word	1000 ; this is not used
+	.word	1911, 1804, 1703, 1607, 1517, 1432, 1351, 1276, 1204, 1136, 1073, 1012
+	.word	956, 902, 851, 804, 758, 716, 676, 638, 602, 568, 536, 506
+	.word	478, 451, 426, 402, 379, 358, 338, 319, 301, 286, 268, 253			; 291 -> 286
+	.word	239, 225, 213, 201, 190, 179, 169, 159, 150, 143, 134, 127			; 145 -> 143
+
+; C              D              E      F              G              A              B
+; C4-37  C#4-38  D4-39  D#4-40  E4-41  F4-42  F#4-43  G4-44  G#4-45  A4-46  A#4-47  B4-48
+; C3-25  C#3-26  D3-27  D#3-28  E3-29  F3-30  F#3-31  G3-32  G#3-33  A3-34  A#3-35  B3-36
+; C2-13  C#2-14  D2-15  D#2-16  E2-17  F2-18  F#2-19  G2-20  G#2-21  A2-22  A#2-23  B2-24
+; C1-01  C#1-02  D1-03  D#1-04  E1-05  F1-06  F#1-07  G1-08  G#1-09  A1-10  A#1-11  B1-12
+
+Music001:
+	.byte	01, 03, 05, 06, 08, 10, 12
+	.byte	13, 15, 17, 18, 20, 22, 24
+	.byte	25, 27, 29, 30, 32, 34, 36
+	.byte	37, 39, 41, 42, 44, 46, 48
+	.byte	01, 0
+	.even
+
+.radix 8
+
+
+MusCur:		.word	0
+
+; start music
+MusStart:
+	call	TimerInit			; init pp timer
+	; set int to LO
+	mov	PC, R0
+	add	#MusIntLo-., R0
+	mov	R0, @#304			; set music interrupt
+	mov	#200, @#306			; PSW 200 at interrupt
+	; get first note and load counter
+	mov	PC, R0
+	add	#Music001-., R0			; music addr
+	mov	R0, MusCur			; first note addr
+	movb	(R0), R1			; first note #
+	asl	R1
+	mov	PC, R0
+	add	#NotPad-., R0
+	add	R1, R0
+	mov	(R0), @#177712			; initial counter
+	tst	@#177714
+	; run
+	mov	#^B01000001, @#177710		; allow int, start
+						; bits [2 1] mks - 00 - 2, 01 - 4, 10 - 8, 11 - 16 
+	return
+
+; mus processor
+MusPro:	tst	MusCur				; current note addr
+	bne	1$				; are we are playing?
+	return					; no - return
+1$:	; process new note
+	mtps	#200				; stop interrupts
+	inc	MusCur				; advance music note
+	movb	@MusCur, R1			; note #
+	beq	20$				; empty ID - stop playing
+	asl	R1
+	mov	PC, R0
+	add	#NotPad-., R0
+	add	R1, R0
+	mov	(R0), R1			; note delays initial
+	mov	R1, @#177712			; set music interrupt timer
+	tst	@#177714			; maybe better way here is  
+	br	99$
+20$:	; stop playing
+	call	TimerInit			; init PP timer
+	clr	MusCur				; music is stopped
+99$:	mtps	#0
+	return
+
+; timer interrupts (for tones)
+MusIntLo:
+;	mov	#50, @#177100
+;	movb	#50, @#177364
+	bic	#200, @#177716			; tick low level
+	add	#MusIntHi-MusIntLo, @#304
+	tst	@#177714
+	rti
+; same as above just for high signal level
+MusIntHi:
+;	mov	#250, @#177100
+;	movb	#250, @#177364
+	bis	#200, @#177716
+	sub	#MusIntHi-MusIntLo, @#304
+	tst	@#177714
+	rti		
+
+
+
+; // Data //////////////////////////////////////////////////////////////////////
+
+PpuComm:	.word	177777
+Int304:		.word	0
+Int306:		.word	0
+
+PpuEnd:
+
+; //////////////////////////////////////////////////////////////////////////////
+; // PPU code end
+; //////////////////////////////////////////////////////////////////////////////
+
+
+	.end	Start
