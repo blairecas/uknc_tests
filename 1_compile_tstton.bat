@@ -13,4 +13,7 @@ php -f ../scripts/lst2bin.php _tstton.lst ./release/tstton.sav sav
 ..\scripts\rt11dsk.exe d main.dsk .\release\tstton.sav >NUL
 ..\scripts\rt11dsk.exe a main.dsk .\release\tstton.sav >NUL
 
+del _tstton.mac
+del _tstton.lst
+
 echo.
