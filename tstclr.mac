@@ -136,10 +136,7 @@ PPDRAW:	; setup screen memory
 	mov	#100000, (R4)
 60$:	bis	#^B0000000100000001, (R3)
 	bisb	#^B00000001, (R5)
-	add	#39., (R4)
-	bis	#^B0000000100000001, (R3)
-	bisb	#^B00000001, (R5)
-	inc	(R4)
+	add	#40., (R4)
 	sob	R2, 60$
 
 PPSTLI:	; setup video lines
