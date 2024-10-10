@@ -93,7 +93,7 @@ PPUSTA:	mtps	#200				; no interrupts
 	mov	R0, (R1)+			; addr of previous descriptor
 	mov	R2, (R1)+			; length of free mem 
 
-	; setup screen memory
+PPDRAW:	; setup screen memory
 	mov	#100000, @#177010		; starting vaddr/2
 	mov	#288., R3			; 288 lines
 10$:	mov	#8., R4				; 8 color lines
@@ -116,8 +116,33 @@ PPUSTA:	mtps	#200				; no interrupts
 	inc	R0
 	sob	R4, 20$
 	sob	R3, 10$
+	; draw bounding box
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	#177014, R3
+	mov	#40., R2
+	mov	#100000, (R4)
+40$:	mov	#177777, (R3)
+	movb	#377, (R5)
+	inc	(R4)
+	sob	R2, 40$
+	mov	#40., R2
+	mov	#287.*40.+100000, (R4)
+50$:	mov	#177777, (R3)
+	movb	#377, (R5)
+	inc	(R4)
+	sob	R2, 50$
+	mov	#288., R2
+	mov	#100000, (R4)
+60$:	bis	#^B0000000100000001, (R3)
+	bisb	#^B00000001, (R5)
+	add	#39., (R4)
+	bis	#^B0000000100000001, (R3)
+	bisb	#^B00000001, (R5)
+	inc	(R4)
+	sob	R2, 60$
 
-	; setup video lines
+PPSTLI:	; setup video lines
 	mov	@#270, Bkp270			; backup old vlines table addr
 	mov	@#272, Bkp272
 	mov	PC, R0				; get new vlines table addr
@@ -138,10 +163,10 @@ PPUSTA:	mtps	#200				; no interrupts
 	add	#2, (R0)+			; +0 means next line is 2-word descriptor
 	; here are 16. empty lines for video controller
 	mov	#16., R3
-40$:	clr	(R0)+				; still no vaddr
+10$:	clr	(R0)+				; still no vaddr
 	mov	R0, (R0)			;
 	add	#2, (R0)+			; next element addr
-	sob	R3, 40$
+	sob	R3, 10$
 	; next lines are res/cursor/rgb lumi
 	dec	R0
 	dec	R0
