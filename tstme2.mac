@@ -1,0 +1,423 @@
+	.title	TSTME2
+	.enabl	LC
+	
+	.asect					; needed for my linker
+	.=1000
+
+.macro	movad	X, Y
+	mov	PC, Y
+	add	X-., Y
+.endm
+
+START:	mtps	#200				; stop interrupts
+	mov	#1000, SP
+	mov	#PPUSTA, R4			; run PPU code
+	mov	#PPUEND-PPUSTA/2, R5
+	call	PPRUN
+	br	.
+
+; command to PPU
+PPCOMM:	.word	177777
+
+; PPU message
+PPMSG:	.word	PPARR				; address of beginning of array
+        .word	177777				; end of transmission
+
+; PPU data exchange array
+PPARR:	.byte	0				; return value (0 - OK)
+PPCMD:	.byte	0				; command
+	.word	32				; device type (32 - PPU mem)
+PPAPP:	.word	0				; address for PPU
+PPACP:	.word	0				; address for CPU
+PPLEN:	.word	0				; length in words
+
+; send command to PPU with exch array
+PPSEN:	mov	#PPMSG, R0			; array address
+	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674			; test if we are ready to send
+	bpl	1$				; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPRUN:	movb	#1, PPCMD			; 1 - allocate memory
+	mov	R5, PPLEN
+	call	PPSEN				; (!) warn - no testing for success
+	movb	#20, PPCMD			; 20 - write to PPU mem
+	mov	R5, PPLEN
+	mov 	R4, PPACP
+	call	PPSEN
+	movb	#30, PPCMD			; 30 - run
+	call	PPSEN
+	return
+
+; release PPU memory (not needed here)
+PPREL:	movb	#2, PPCMD			; 2 - release memory
+	call	PPSEN
+	return
+
+
+; //////////////////////////////////////////////////////////////////////////////	
+; // PPU code
+; //////////////////////////////////////////////////////////////////////////////
+C_SCRWID 	= 80.
+C_FONT_ADDR	= 117430
+C_FONT_DY	= 11.
+
+PPUSTA:	mtps	#200				; no interrupts
+	clr	R0
+	call	@7132(R0)			; stop FD motor
+	mov	#1000, SP			; or else our SP can be somewhere above 1000
+
+	; setup own lines table
+	mov	#1000, R0			; addr of lines table (must be 8-bytes aligned)
+	mov	R0, -(SP)			; save it
+	bis	#6, (SP)			; +6 means first line descriptor have lumi&color
+	mov	#^B1011101010011000, (R0)+ 	; YRGB YRGB YRGB YRGB for colors 1st part
+	mov	#^B1111111011011100, (R0)+	; YRGB YRGB YRGB YRGB for colors 2nd part
+	clr	(R0)+				; vaddr not used for first 18 lines
+	mov	R0, (R0)
+	add	#2, (R0)
+	bis	#2, (R0)+			; +2 means next line is scale&cursor
+	mov	#^B0000000000010000, (R0)+	; black colored graph cursor
+	mov	#^B0000000000000111, (R0)+	; x640, max luminance (xxxDDxBGR, DD: 00-640, 01-320, 10-160, 11-80)
+	clr	(R0)+				; vaddr still not needed
+	mov	R0, (R0)
+	add	#2, (R0)+			; +0 means next line is 2-word descriptor
+	; 16. empty lines
+	mov	#16., R3
+10$:	clr	(R0)+				; still no vaddr
+	mov	R0, (R0)			;
+	add	#2, (R0)+			; next element addr
+	sob	R3, 10$
+	; 288. main lines
+	mov	#100000, R1			; vaddr
+	mov	#288., R3
+20$:	mov	R1, (R0)+			; put vaddr
+	add	#C_SCRWID, R1			; advance vaddr
+	mov	R0, (R0)			; put next element addr
+	add	#2, (R0)+
+	sob	R3, 20$
+	; all lines are set - switch video to them
+	clr	@#270
+	mov	(SP)+, @#272
+
+	; stop CPU
+	; clr	@#177076			; stop channel 0 interrupts
+	bis	#20, @#177716
+	bis	#40, @#177716			; set ACLO, DCLO (bits: 4-CPU HALT mode, 5-CPU stop)
+	; mov	#0, @#177716			; remove DCLO
+	; mov	#100000, @#177716		; remove ACLO
+	; mov	#1, @#177076			; allow channel 0 interrupts
+
+30$:	call	TestRCpu
+	call	TestRPpu
+	call	ClearVram
+	call	OutResults
+	mov	BadCountC, R0
+	add	BadCountP, R0
+	bne	90$
+	; relaunch if no errors
+	movad	#MsgRest, R0
+	call	PrintStrY
+	mov	#5., R0
+40$:	clr	R1
+	sob	R1, .
+	sob	R0, 40$
+	br	30$
+
+90$:	; what else?
+	br	.
+
+
+ClearVram:
+	mov	#177010, R4
+	mov	#177014, R5
+	mov	#177012, R2
+	mov	#100000, R3
+	mov	R3, (R4)
+10$:	clr	(R5)
+	clrb	(R2)
+	inc	(R4)
+	sob	R3, 10$
+	return
+
+
+TestRCpu:
+	movad	#BadTableC, R2				; R2 - addr of 'bad addrs' table
+	clr	BadCountC
+	mov	#177010, R4
+	mov	#177014, R5
+	clr	R3
+10$:	clr	R0
+	call	100$
+	bcc	20$					; C=0 - is bad
+	dec	R0
+	call	100$
+20$:	dec	R3
+	bne	10$
+	return
+	; check one word
+100$:	mov	R3, (R4)
+	mov	R0, (R5)
+	mov	R3, (R4)
+	mov	(R5), R1
+	cmp	R0, R1
+	beq	190$
+	mov	R3, (R2)+
+	mov	R0, (R2)+
+	mov	R1, (R2)+
+	inc	BadCountC
+	cmp	BadCountC, #8.
+	blo	180$
+	; buffer is full, return from TestRCpu
+	tst	(SP)+	
+	return
+180$:	tst	(PC)+
+190$:	sec
+	return
+
+BadCountC:	.word	0
+BadTableC:	.blkw	8.*3.
+
+
+TestRPpu:
+	movad	#BadTableP, R2				; R2 - addr of 'bad addrs' table
+	clr	BadCountP
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	#177777, R3
+10$:	clr	R0
+	call	100$
+	bcc	20$					; C=0 - is bad
+	dec	R0
+	call	100$
+20$:	dec	R3
+	bmi	10$
+	return
+	; check one word
+100$:	mov	R3, (R4)
+	movb	R0, (R5)
+	mov	R3, (R4)
+	movb	(R5), R1
+	cmpb	R0, R1
+	beq	190$
+	mov	R3, (R2)+
+	movb	R0, (R2)+
+	movb	R1, (R2)+
+	inc	BadCountP
+	cmp	BadCountP, #8.
+	blo	180$
+	; buffer is full, return from TestRPpu
+	tst	(SP)+	
+	return
+180$:	tst	(PC)+
+190$:	sec
+	return
+
+BadCountP:	.word	0
+BadTableP:	.blkw	8.*2.
+
+
+OutResults:
+	mov	#100000, R1
+	call	OutResultsC
+	call	OutResultsP
+	return
+
+
+OutResultsC:
+	movad	#MsgCpuMem, R0
+	call	PrintStrY
+	tst	BadCountC
+	bne	10$
+	movad	#MsgNoErrors, R0
+	call	PrintStrY
+	return
+10$:	movad	#MsgErrInfoC, R0
+	call	PrintStrY
+	movad	#BadTableC, R5
+	mov	BadCountC, R3
+20$:	mov	(R5)+, R0
+	call	PrintOctal
+	mov	(R5)+, R0
+	inc	R1
+	call	PrintBinary
+	mov	(R5)+, R0
+	inc	R1
+	call	PrintBinary
+	add	#11.*C_SCRWID-40., R1
+	sob	R3, 20$
+	return
+
+
+OutResultsP:
+	movad	#MsgPpuMem, R0
+	call	PrintStrY
+	tst	BadCountP
+	bne	10$
+	movad	#MsgNoErrors, R0
+	call	PrintStrY
+	return
+10$:	movad	#MsgErrInfoP, R0
+	call	PrintStrY
+	movad	#BadTableP, R5
+	mov	BadCountP, R3
+20$:	mov	(R5)+, R0
+	call	PrintOctal
+	movb	(R5)+, R0
+	inc	R1
+	call	PrintBinByte
+	movb	(R5)+, R0
+	inc	R1
+	call	PrintBinByte
+	add	#11.*C_SCRWID-24., R1
+	sob	R3, 20$
+	return
+
+
+MsgCpuMem:	.asciz	"Memory planes 1,2 (CPU)"
+MsgPpuMem:	.asciz	"Memory plane 0 (VRAM only, PPU)"
+MsgNoErrors:	.asciz	".. have no errors .."
+MsgRest:	.asciz	".. restarting tests .."
+                ;        012345-0123456789012345-0123456789012345
+MsgErrInfoC:	.asciz	"ADDR       PUT BITS         GET BITS"
+                ;        012345-01234567-01234567
+MsgErrInfoP:	.asciz	"ADDR   PUT BITS GET BITS"
+		.even
+
+
+; 117430 - addr of 0x00 character in ROM, font is 11. bytes per character, KOI8R
+; R0 - string addr, R1 - vaddr
+PrintStr:
+	mov	R2, -(SP)
+	mov	R4, -(SP)
+	mov	R5, -(SP)
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	R1, (R4)
+	mov	#C_SCRWID, R2
+10$:	movb	(R0)+, R1
+	beq	20$
+	bic	#^B1111111100000000, R1
+	mul	#C_FONT_DY, R1
+	add	#C_FONT_ADDR, R1
+	.rept	C_FONT_DY
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	.endr
+	sub	#C_FONT_DY*C_SCRWID-1, (R4)
+	br	10$
+20$:	mov	(R4), R1
+	mov	(SP)+, R5
+	mov	(SP)+, R4
+	mov	(SP)+, R2
+	return
+
+; print as above and put position to new string vaddr
+PrintStrY:
+	mov	R1, -(SP)
+	call	PrintStr
+	mov	(SP)+, R1
+	add	#11.*C_SCRWID, R1
+	return
+
+; R0 - number, R1 - vaddr
+PrintOctal:
+	mov	R2, -(SP)
+	mov	R3, -(SP)
+	mov	R4, -(SP)
+	mov	R5, -(SP)
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	R1, (R4)
+	mov	#C_SCRWID, R2
+	mov	#6., R3
+	clr	R1
+	br	22$
+20$:	clr	R1
+	asl	R0
+	rol	R1
+	asl	R0
+	rol	R1
+22$:	asl	R0
+	rol	R1	
+	mul	#C_FONT_DY, R1
+	add	#'0*C_FONT_DY+C_FONT_ADDR, R1
+	.rept	C_FONT_DY
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	.endr
+	sub	#C_FONT_DY*C_SCRWID-1, (R4)
+	sob	R3, 20$
+	mov	(R4), R1
+	mov	(SP)+, R5
+	mov	(SP)+, R4
+	mov	(SP)+, R3
+	mov	(SP)+, R2
+	return
+
+; R0 - number, R1 - vaddr
+PrintBinary:
+	mov	R2, -(SP)
+	mov	R3, -(SP)
+	mov	R4, -(SP)
+	mov	R5, -(SP)
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	R1, (R4)
+	mov	#C_SCRWID, R2
+	mov	#16., R3
+20$:	mov	#'0*C_FONT_DY+C_FONT_ADDR, R1
+	rol	R0
+	bcc	30$
+	mov	#'1*C_FONT_DY+C_FONT_ADDR, R1
+30$:	.rept	C_FONT_DY
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	.endr
+	sub	#C_FONT_DY*C_SCRWID-1, (R4)
+	sob	R3, 20$
+	mov	(R4), R1
+	mov	(SP)+, R5
+	mov	(SP)+, R4
+	mov	(SP)+, R3
+	mov	(SP)+, R2
+	return
+
+; R0 - number, R1 - vaddr
+PrintBinByte:
+	mov	R2, -(SP)
+	mov	R3, -(SP)
+	mov	R4, -(SP)
+	mov	R5, -(SP)
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	R1, (R4)
+	mov	#C_SCRWID, R2
+	mov	#8., R3
+20$:	mov	#'0*C_FONT_DY+C_FONT_ADDR, R1
+	rolb	R0
+	bcc	30$
+	mov	#'1*C_FONT_DY+C_FONT_ADDR, R1
+30$:	.rept	C_FONT_DY
+	movb	(R1)+, (R5)
+	add	R2, (R4)
+	.endr
+	sub	#C_FONT_DY*C_SCRWID-1, (R4)
+	sob	R3, 20$
+	mov	(R4), R1
+	mov	(SP)+, R5
+	mov	(SP)+, R4
+	mov	(SP)+, R3
+	mov	(SP)+, R2
+	return
+
+
+PPUEND:
+
+	.END	START

@@ -1,0 +1,95 @@
+	.title	DTEST
+	.enabl	LC
+
+	.asect
+	.=0
+
+Start:	nop
+	; read something from track #0, sector #2, bottom side
+	swab	R0
+	mov	R0, PPDev
+	call	PPSen
+	clr	R5
+10$:	tstb	PPArr
+	bne	Error
+	; repeatedly read one track then
+	inc	R5
+	mov	#401, PPApp	; track #1, sector #1
+	mov	#10240., PPAcp	; addr where to read
+	mov	#12000, PPLen	; one full track both sides
+	call	PPSen
+	; show info
+	mov	#MsgHlo, R0
+	call	PriStr
+	mov	R5, R0
+        call	PriOct
+	; repeat
+	br	10$
+
+; stop with error
+Error:	mov	#MsgErr, R0
+	call	PriStr
+	mov	PPArr, R0
+	call	PriOct
+	mtps	#0
+	halt
+
+MsgHlo:	.asciz	"Readed: "
+MsgNum:	.asciz	"000000"<15>
+MsgErr:	.asciz	<12>"ERROR: reading from FD returns non-zero"<12><15>
+	.even
+
+; PPU message
+PPmsg:	.word	PPArr		; beginning of array addr
+        .word	177777
+PPArr:	.byte	0		; return value
+PPCmd:	.byte	10		; read command
+PPDev:	.word	0		; FD#0 (bottom side)
+PPApp:	.word	1000		; track #0, sector #2
+PPAcp:	.word	1000		; addr in CPU
+PPLen:	.word	10001		; length in words
+
+; send command to PPU
+PPSen:	mov	#PPMsg, R2
+	mov	#5, R3
+	br	20$
+10$:	movb	(R2)+, @#176676
+20$:	tstb	@#176674
+	bpl	20$
+	sob	R3, 10$
+	return
+
+; print something with channel 0
+PriStr:	movb	(R0)+, R1
+	beq	99$
+	tstb	@#177564
+	bpl	.-4
+	movb	R1, @#177566
+	br	PriStr
+99$:	return 
+
+; print octal number
+PriOct:	mov	#6, R3
+	mov	#MsgNum, R2
+	clr	R1
+	br	20$
+10$:	clr	R1
+	rol	R0
+	rol	R1
+	rol	R0
+	rol	R1
+20$:	rol	R0
+	rol	R1
+	add	#'0, R1
+	movb	R1, (R2)+
+	sob	R3, 10$
+	mov	#MsgNum, R0
+	br	PriStr
+
+	.=10238.
+	.word	123456
+	
+	.=20478.
+	.word	123456
+	
+	.end	Start

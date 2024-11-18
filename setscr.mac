@@ -1,0 +1,45 @@
+	.title	SETSCR
+
+; set green text on black background
+; and set fast screen scroll type
+
+Start:	call	PPSen
+	mov	#7136, PPApp
+	mov	#PPLen+2, PPAcp
+	call	PPSen
+	mov	#MsgSet, R0
+	emt	351
+	emt	350
+
+; send command to PPU
+PPSen:	mov	#PPMsg, R2
+	mov	#5, R3
+	br	20$
+10$:	movb	(R2)+, @#176676
+20$:	tstb	@#176674
+	bpl	20$
+	sob	R3, 10$
+	return
+
+; PPU mem for fast scroll 7170=1, 7136=2
+PPmsg:	.word	PPArr
+        .word	177777
+PPArr:	.byte	0
+PPCmd:	.byte	20		; 20 - write
+PPDev:	.word	32		; 32 - ppu mem
+PPApp:	.word	7170		; ppu addr
+PPAcp:	.word	PPLen		; cpu aadr
+PPLen:	.word	1		; length (words)
+	.word	2
+
+MsgSet:	.ascii	<33><240>"4"	; char color
+	.ascii	<33><241>"0"	; bgr color
+	.ascii	<33><242>"0"	; screen color
+	.ascii	<33><246>"1"	; 80x24
+	.ascii	<33><247>"4"	; cursor color
+	.ascii	<33><267>	; timer on
+	.ascii	<33>"%!3"<14>	; set text screen and clear it
+	.byte	0
+	.even
+
+	.end	START

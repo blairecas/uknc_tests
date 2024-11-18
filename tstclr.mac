@@ -78,6 +78,7 @@ PPREL:	movb	#2, PPCMD			; 2 - release memory
 ; //////////////////////////////////////////////////////////////////////////////
 
 PPUSTA:	mtps	#200				; no interrupts
+	; clr	R0
 	; call	@7132(R0)			; stop FD motor
 
 	; damn that hacks - need to correct memory descriptors
