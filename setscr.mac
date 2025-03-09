@@ -3,12 +3,21 @@
 ; set green text on black background
 ; and set fast screen scroll type
 
-Start:	call	PPSen
-	mov	#7136, PPApp
-	mov	#PPLen+2, PPAcp
+Start:	; fast scroll
 	call	PPSen
+	mov	#7136, PPApp
+	add	#2, PPAcp
+	call	PPSen
+	; set colors and clear screen
 	mov	#MsgSet, R0
 	emt	351
+	; clear LAT thing (all upper info string)
+	mov	#175700, @#176640
+	mov	#10.*40., R3
+10$:	clr	@#176642
+	inc	@#176640
+	sob	R3, 10$
+	; exit
 	emt	350
 
 ; send command to PPU

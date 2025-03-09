@@ -1,0 +1,102 @@
+	.title	TSTCAR
+	.mcall	.print .exit .ttyou
+	.enabl	LC
+
+; test UKNCBTL bug with non-served addrs
+; ask PPU to set 100000-120000 as cartridge space
+; write something there 
+
+Start:	; start PPU code
+	call	PPSen				; allocate
+	movb	#20, PPCmd
+	mov 	#PpuStart, PPAcp
+	call	PPSen				; write
+	movb	#30, PPCmd
+	call	PPSen				; run
+	movb	#2, PPCmd
+	call	PPSen				; release mem
+	; wait for PPU finish code exec
+	tst	PPComm
+	bne	.-4
+	; print results then
+	.print	#Msg1
+	.print	#Msg0
+	mov	Res1, R0
+	add	#'0, R0
+	.ttyou
+	.print	#Msg2
+	.print	#Msg0
+	mov	Res2, R0
+	add	#'0, R0
+	.ttyou
+	.exit
+
+PPmsg:	.word	PPArr
+        .word	177777
+PPArr:	.byte	0
+PPCmd:	.byte	1
+PPDev:	.word	32
+PPApp:	.word	0
+PPAcp:	.word	End-PpuStart/2
+PPLen:	.word	End-PpuStart/2
+
+PPSen:	mov	#PPMsg, R2
+	mov	#5, R3
+	br	20$
+10$:	movb	(R2)+, @#176676
+20$:	tstb	@#176674
+	bpl	20$
+	sob	R3, 10$
+	return
+
+PPComm:	.word	177777
+Res1:	.word	0
+Res2:	.word	0
+Msg0:	.ascii	" cartridge trap 4 count: "<200>
+Msg1:	.ascii	"1st"<200>
+Msg2:	.ascii	<12><15>"2nd"<200>
+	.even
+
+; //////////////////////////////////////////////////////////////////////////////
+; // PPU code
+; //////////////////////////////////////////////////////////////////////////////
+
+PpuStart:
+	mtps	#200
+	; save 
+	mov	@#177054, -(SP)
+	mov	@#4, -(SP)
+	mov	@#6, -(SP)
+	; set vect 4
+	mov	PC, R0
+	add	#PP4-., R0
+	mov	R0, @#4
+	mov	#200, @#6
+	; test cart 1
+	clr	PP4n
+	mov	#^B00000010, @#177054	; cartridge #1, bank #1
+	clr	@#110012		; WD device reg
+	mov	#Res1/2, @#177010	; output result
+	mov	PP4n, @#177014		; to CPU mem
+	; test cart 2
+	clr	PP4n
+	mov	#^B00001010, @#177054
+	clr	@#110012
+	mov	#Res2/2, @#177010
+	mov	PP4n, @#177014
+	; restore
+	mov	(SP)+, @#6
+	mov	(SP)+, @#4
+	mov	(SP)+, @#177054
+	; exit
+	mtps	#0
+	mov	#PPComm/2, @#177010	; signal to CPU
+	clr	@#177014		; that we are done here
+	return
+
+PP4:	inc	(PC)+
+PP4n:	.word	0
+	rti
+
+End:
+	.end	Start

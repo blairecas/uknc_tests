@@ -1,29 +1,40 @@
 	.title	TSTCLR
 	.enabl	LC
-	
+
+C_SCRWID =: 80. ; screen width in characters
+
 	.asect					; needed for my linker
 	.=1000
 
 START:	nop					; first command MUST BE NOP for booting from rs232
 	mtps	#200				; stop interrupts
 	mov	#1000, SP
+
 	mov	#PPUSTA, R4			; run PPU code
 	mov	#PPUEND-PPUSTA/2, R5
 	call	PPRUN
 
-	tstb	@#177560			; test K0 status reg (wait keypress)
+10$:	tstb	@#177560			; test K0 status reg (wait keypress)
 	bpl	.-4
-	tstb	@#177562			; read K0 data reg
+	movb	@#177562, R0			; read K0 data reg
+	cmpb	R0, #40				; check for 'space' key
+	bne	Exit
+	inc	PPComm				; ask PPU to change picture
+	tst	PPComm				; wait for it
+	bne	.-4
+	br	10$
 
-	dec 	PPCOMM				; ask PPU to exit
+Exit:	dec 	PPCOMM				; ask PPU to exit
 	tst	PPCOMM				; wait for it
 	bne	.-4
 
 	call	PPREL				; release PPU memory 
 	mov	#TTEXTR, R0			; print string
 	emt	351
+
 	clr	R0				; .hreset before exit (close files etc)
 	emt	350				; .exit
+
 
 ; init screen to text mode and print something
 TTEXTR:	.ascii	<33>"%!3"<14>"Test 128 colors utility. First half is Y=0 (50% brightness)."<0>
@@ -79,54 +90,8 @@ PPUSTA:	mtps	#200				; no interrupts
 	clr	R0
 	call	@7132(R0)			; stop FD motor
 
-PPDRAW:	; setup screen memory
-	mov	#100000, @#177010		; starting vaddr/2
-	mov	#288., R3			; 288 lines
-10$:	mov	#8., R4				; 8 color lines
-	clr	R0				; color index
-20$:	mov	#5., R5				; 5 characters in each line (40 pixels)
-30$:	mov	R0, R1				; R0 - color index
-	asl	R1				; R1 - color index*2
-	; put RGB
-	mov	PC, R2
-	add	#COLR0-., R2
-	add	R0, R2
-	movb	(R2), @#177012
-	mov	PC, R2
-	add	#COLR1-., R2
-	add	R1, R2
-	mov	(R2), @#177014
-	;
-	inc	@#177010
-	sob	R5, 30$
-	inc	R0
-	sob	R4, 20$
-	sob	R3, 10$
-	; draw bounding box
-	mov	#177010, R4
-	mov	#177012, R5
-	mov	#177014, R3
-	mov	#40., R2
-	mov	#100000, (R4)
-40$:	mov	#177777, (R3)
-	movb	#377, (R5)
-	inc	(R4)
-	sob	R2, 40$
-	mov	#40., R2
-	mov	#287.*40.+100000, (R4)
-50$:	mov	#177777, (R3)
-	movb	#377, (R5)
-	inc	(R4)
-	sob	R2, 50$
-	mov	#288., R2
-	mov	#100000, (R4)
-60$:	bis	#^B0000000100000001, (R3)
-	bisb	#^B00000001, (R5)
-	add	#40., (R4)
-	sob	R2, 60$
-
 PPSTLI:	; setup video lines
-	mov	@#270, Bkp270			; backup old vlines table addr
+	mov	@#270, Bkp270			; backup old vlines table addrs
 	mov	@#272, Bkp272
 	mov	PC, R0				; get new vlines table addr
 	add	#VLTBL-.+16., R0
@@ -140,7 +105,7 @@ PPSTLI:	; setup video lines
 	mov	R0, (R0)
 	add	#4, (R0)+			; +2 means next line is scale&cursor
 	mov	#^B0000000000010000, (R0)+	; no cursor
-	mov	#^B0000000000010000, (R0)+	; 320x288, min rgb luminance (last 3 bits)
+	mov	#^B0000000000000000, (R0)+	; 640x288, min rgb luminance (last 3 bits)
 	clr	(R0)+				; vaddr still not needed
 	mov	R0, (R0)
 	add	#2, (R0)+			; +0 means next line is 2-word descriptor
@@ -167,7 +132,7 @@ PPSTLI:	; setup video lines
 	mov	#^B1011101010011000, (R0)+	; YRGB YRGB YRGB YRGB for colors 1st part
 	mov	#^B1111111011011100, (R0)+	; YRGB YRGB YRGB YRGB for colors 2nd part
 	mov	R1, (R0)+			; vaddr
-	add	#40., R1			; advance vaddr
+	add	#C_SCRWID, R1			; advance vaddr
 	mov	R0, (R0)
 	add	#4, (R0)+			; +2 next line is scale&cursor
 	
@@ -178,13 +143,23 @@ PPSTLI:	; setup video lines
 	clr	@#270
 	mov	(SP)+, @#272
 	mtps	#0
-		
-PPCYCL:	mov	#PPCOMM/2, @#177010
-	mov	@#177014, R0
-	bmi	10$
-	trap	0				; execute other processes in PPU dispatcher
-	br	PPCYCL
-10$:	mov	Bkp270, @#270			; restore vlines table
+
+	; set picture to video mem
+	call	PPSETP
+
+; PPU main cycle
+PPCLEA:	mov	#PPCOMM/2, @#177010
+	clr	@#177014
+	trap	0				; exec other processes in PPU
+
+PPCYCL:	mov	#PPCOMM/2, @#177010		; get command from CPU
+	mov	@#177014, R0			;
+	bmi	PPEXIT				; it's <0 - exit
+	beq	PPCLEA				; it's 0 - wait next
+	call	PPSETP				; it's >0 - next picture
+	br	PPCLEA
+
+PPEXIT:	mov	Bkp270, @#270			; restore vlines table
 	mov	Bkp272, @#272
 	mov	#PPCOMM/2, @#177010		; ackn exit
 	clr	@#177014
@@ -196,10 +171,10 @@ SET144:	clr	R5				; it's RGB luminance
 	mov	#8., R2				; 8. blocks
 50$:	mov	#18., R3			; 18. lines each
 60$:	mov	#^B0000000000010000, (R0)+ 	; no cursor
-	mov	#^B0000000000010000, (R0)  	; 320x288
+	mov	#^B0000000000000000, (R0)  	; 640x288
 	bis	R5, (R0)+			; add RGB luminance
 	mov	R1, (R0)+			; vaddr
-	add	#40., R1			; advance vaddr by 40. chars
+	add	#C_SCRWID, R1			; advance vaddr by screen width
 	mov	R0, (R0)
 	add	#2, (R0)
 	bis	#2, (R0)+			; can we just add #4, (R0)+ ?
@@ -208,8 +183,89 @@ SET144:	clr	R5				; it's RGB luminance
 	sob	R2, 50$
 	return
 
+
+; setup 128 colors test screen memory
+PPM128:	mov	#100000, @#177010		; starting vaddr/2
+	mov	#288., R3			; 288 lines
+10$:	mov	#8., R4				; 8 color lines
+	clr	R0				; color index
+20$:	mov	#10., R5			; 10 characters in each line (80 pixels)
+30$:	mov	R0, R1				; R0 - color index
+	asl	R1				; R1 - color index*2
+	; put RGB
+	mov	PC, R2
+	add	#COLR0-., R2
+	add	R0, R2
+	movb	(R2), @#177012
+	mov	PC, R2
+	add	#COLR1-., R2
+	add	R1, R2
+	mov	(R2), @#177014
+	;
+	inc	@#177010
+	sob	R5, 30$
+	inc	R0
+	sob	R4, 20$
+	sob	R3, 10$	
+PPMBOU:	; draw bounding box
+	mov	#177010, R4
+	mov	#177012, R5
+	mov	#177014, R3
+	mov	#C_SCRWID, R2
+	mov	#100000, (R4)
+40$:	mov	#177777, (R3)
+	movb	#377, (R5)
+	inc	(R4)
+	sob	R2, 40$
+	mov	#C_SCRWID, R2
+	mov	#287.*C_SCRWID+100000, (R4)
+50$:	mov	#177777, (R3)
+	movb	#377, (R5)
+	inc	(R4)
+	sob	R2, 50$
+	mov	#288., R2
+	mov	#100000, (R4)
+60$:	bis	#^B0000000100000001, (R3)
+	bisb	#^B00000001, (R5)
+	add	#C_SCRWID, (R4)
+	sob	R2, 60$
+	return
+
+
+; set checkerboard video mem
+PPMCHE:	mov	#177010, R4
+	mov	#177012, R5
+	mov	#177014, R3
+	mov	#100000, (R4)
+	mov	#144., R2
+10$:	mov	#C_SCRWID, R1
+20$:	mov	#^B10101010, (R5)
+	mov	#^B1010101010101010, (R3)
+	inc	(R4)
+	sob	R1, 20$
+	mov	#C_SCRWID, R1
+30$:	mov	#^B01010101, (R5)
+	mov	#^B0101010101010101, (R3)
+	inc	(R4)
+	sob	R1, 30$
+	sob	R2, 10$
+	jmp	PPMBOU
+
+
+; set next picture (cycle them)
+PPSETP:	inc	PICNUM
+	bic	#^B1111111111111110, PICNUM
+	mov	PICNUM, R0
+	asl	R0
+	asl	R0
+	add 	R0, PC
+	jmp	PPM128
+	jmp	PPMCHE
+
+
 ; //////////////////////////////////////////////////////////////////////////////
 
+PICNUM:	.word	177777
 BKP270:	.word	0
 BKP272:	.word	0
 
