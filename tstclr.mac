@@ -227,7 +227,10 @@ PPMBOU:	; draw bounding box
 	mov	#100000, (R4)
 60$:	bis	#^B0000000100000001, (R3)
 	bisb	#^B00000001, (R5)
-	add	#C_SCRWID, (R4)
+	add	#C_SCRWID-1, (R4)
+	bis	#^B1000000010000000, (R3)
+	bisb	#^B10000000, (R5)
+	inc	(R4)
 	sob	R2, 60$
 	return
 
