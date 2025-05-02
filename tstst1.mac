@@ -1,0 +1,89 @@
+	.title	MAIN
+	.mcall	.print .exit
+	.enabl	LC ; without AMA, contains relocatable code
+	
+	.asect
+	.=1000
+
+Start:	mov	#PpuStart, R4
+	mov	#PpuEnd-PpuStart/2, R5
+	call	PPRun
+	clr	R0				; .hreset before .exit
+	.exit
+
+; //////////////////////////////////////////////////////////////////////////////
+; // CPU <-> PPU
+; //////////////////////////////////////////////////////////////////////////////
+
+MsgPpuNoMem:	
+	.asciz	"? unable to allocate memory in PPU"
+	.even
+
+; PPU message
+;
+PPmsg:	.word	PPArr				; address of beginning of array
+        .word	177777				; end of transmission
+
+; PPU data exchange array
+;
+PPArr:	.byte	0				; return value (0 - OK)
+PPCmd:	.byte	0				; command
+	.word	32				; device type (32 - PPU mem)
+PPApp:	.word	0				; address for PPU
+PPAcp:	.word	0				; address for CPU
+PPLen:	.word	0				; length in words
+
+; send command to PPU with exch array
+PPSen:	mov	R0, -(SP)
+	mov	R1, -(SP)
+	mov	#PPMsg, R0			; array address
+	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
+	br	1$
+2$:	movb	(R0)+, @#176676
+1$:	tstb	@#176674			; test if we are ready to send
+	bpl	1$				; cycle if >= 0 (not set last bit in byte)
+	sob	R1, 2$
+	mov	(SP)+, R1
+	mov	(SP)+, R0
+	return
+
+; send and start PPU code
+; R4 - start addr in CPU
+; R5 - length / 2
+PPRun:	movb	#1, PPCmd			; 1 - allocate memory
+	mov	R5, PPAcp
+	call	PPSen
+	tstb	PPArr				; test if allocate success
+	beq	1$				; 0 - OK
+	.print	#MsgPpuNoMem
+	.exit					; fatal error - out of memory in PPU
+1$:	movb	#20, PPCmd			; 20 - write to PPU mem
+	mov 	R4, PPAcp
+	mov	R5, PPLen
+	call	PPSen
+	movb	#30, PPCmd			; 30 - run
+	br	PPSen
+
+; release PPU memory
+PPRele:	movb	#2, PPCmd			; 2 - release memory
+	br	PPSen
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // PPU code start
+; //////////////////////////////////////////////////////////////////////////////
+
+PpuStart:
+	bic	#^B110, @#177710
+	mov	#110200, @#177716
+	trap	0
+	br	PpuStart
+PpuEnd:
+
+
+; //////////////////////////////////////////////////////////////////////////////
+; // PPU code end
+; //////////////////////////////////////////////////////////////////////////////
+
+
+	.end	Start
