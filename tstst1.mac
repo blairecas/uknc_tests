@@ -5,85 +5,185 @@
 	.asect
 	.=1000
 
-Start:	mov	#PpuStart, R4
-	mov	#PpuEnd-PpuStart/2, R5
-	call	PPRun
-	clr	R0				; .hreset before .exit
-	.exit
+Start:
+	mov	#176640, R4
+	mov	#176642, R5
+	mov	#100000, (R4)
 
-; //////////////////////////////////////////////////////////////////////////////
-; // CPU <-> PPU
-; //////////////////////////////////////////////////////////////////////////////
+	; LFSR
+	mov	#80.*60., R3	
+10$:	call	Random
+	mov	R0, (R5)
+	inc	(R4)
+	sob	R3, 10$
+	call	SomeLine
 
-MsgPpuNoMem:	
-	.asciz	"? unable to allocate memory in PPU"
-	.even
+	; C64
+;	mov	#80.*60., R3	
+;20$:	call	NextRandom
+;	clr	R0
+;	bisb	RandSeed1, R0
+;	swab	R0
+;	bisb	RandSeed2, R0	
+;	mov	R0, (R5)
+;	inc	(R4)
+;	sob	R3, 20$
 
-; PPU message
-;
-PPmsg:	.word	PPArr				; address of beginning of array
-        .word	177777				; end of transmission
+	; Nikita's
+	mov	#80.*60., R1
+20$:	call	LA270
+	mov	R3, (R5)
+	inc	(R4)
+	sob	R1, 20$
+	call	SomeLine
 
-; PPU data exchange array
-;
-PPArr:	.byte	0				; return value (0 - OK)
-PPCmd:	.byte	0				; command
-	.word	32				; device type (32 - PPU mem)
-PPApp:	.word	0				; address for PPU
-PPAcp:	.word	0				; address for CPU
-PPLen:	.word	0				; length in words
+	; Manwe's
+	mov	#80.*60., R3	
+30$:	call	RND
+	mov	R0, (R5)
+	inc	(R4)
+	sob	R3, 30$
+	call	SomeLine
 
-; send command to PPU with exch array
-PPSen:	mov	R0, -(SP)
-	mov	R1, -(SP)
-	mov	#PPMsg, R0			; array address
-	mov	#5, R1				; bytes to send+1 (sending from @#PP_MSG)
-	br	1$
-2$:	movb	(R0)+, @#176676
-1$:	tstb	@#176674			; test if we are ready to send
-	bpl	1$				; cycle if >= 0 (not set last bit in byte)
-	sob	R1, 2$
-	mov	(SP)+, R1
-	mov	(SP)+, R0
+	; xorshift
+	mov	#80.*60., R2	
+40$:	call	XorShift
+	mov	R0, (R5)
+	inc	(R4)
+	sob	R2, 40$
+
+	br .
+
+; some line
+SomeLine:
+	add	#160., (R4)
 	return
 
-; send and start PPU code
-; R4 - start addr in CPU
-; R5 - length / 2
-PPRun:	movb	#1, PPCmd			; 1 - allocate memory
-	mov	R5, PPAcp
-	call	PPSen
-	tstb	PPArr				; test if allocate success
-	beq	1$				; 0 - OK
-	.print	#MsgPpuNoMem
-	.exit					; fatal error - out of memory in PPU
-1$:	movb	#20, PPCmd			; 20 - write to PPU mem
-	mov 	R4, PPAcp
-	mov	R5, PPLen
-	call	PPSen
-	movb	#30, PPCmd			; 30 - run
-	br	PPSen
+; xorshift
+XorShift:
+	mov	(PC)+, R0
+Xor1:	.word	12345
+	; xs ^= xs << 1
+ 	mov r0, r1
+ 	asl   r1
+ 	xor r1, r0
+ 	; xs ^= xs >> 15
+  	sxt r1 ; use N flag (bit15 after xor)
+ 	neg  r1
+ 	xor r1, r0
+ 	; xs ^= xs >> 1
+ 	mov r0, r1
+ 	clc
+ 	ror  r1
+ 	xor r1, r0
+	mov R0, Xor1
+	return
 
-; release PPU memory
-PPRele:	movb	#2, PPCmd			; 2 - release memory
-	br	PPSen
+; Routine: Get pseudo-random number, result in HL
+; Портит: R0, R2, R3
+; Результат в R3
+LA270:
+  MOV  L5C76, R2  ; A270  LD DE,($5C76)  ; Read RND SEED variable
+  MOV  R2, R3    ; A274  LD H,E
+  SWAB  R3
+  BIC  #377, R3
+  ADD  #375, R3  ; A275  LD L,$FD
+  MOV  R2, R0    ; A277  LD A,D
+  SWAB  R0
+  BIC  #177400, R0  ; A278  OR A
+  SUB  R2, R3    ; A279  SBC HL,DE
+  SBCB  R0    ; A27B  SBC A,$00
+  SUB  R2, R3    ; A27D  SBC HL,DE
+  SBCB  R0    ; A27F  SBC A,$00
+        ; A281  LD E,A
+  BIC  #177400, R0  ; A282  LD D,$00
+  SUB  R0, R3    ; A284  SBC HL,DE
+  BHIS  LA289    ; A286  JR NC,$A289
+  INC  R3    ; A288  INC HL
+LA289:  MOV  R3, L5C76  ; A289  LD ($5C76),HL  ; Write RND SEED variable
+  RETURN      ; A28C  RET
+L5C76:  .WORD  123456  ; Pseudo-random seed
 
+; Sandro's
+crand:
+  mov (pc)+, r3
+crand_a:
+  .word 0
+  mov (pc)+, r0
+crand_b:
+  .word 0
+  add #53731., r3
+  add r3, r0
+  mov r0, @#crand_b
+  clrb r0
+  swab r0
+  add r0, r3
+  mov r3, @#crand_a
+  mov r0, 2(sp)
+  return
 
-; //////////////////////////////////////////////////////////////////////////////
-; // PPU code start
-; //////////////////////////////////////////////////////////////////////////////
+; Manwe's
+RND:	MOV	(PC)+,R0
+SEED1:	.WORD	173451
+	MOV	(PC)+,R1
+SEED2:	.WORD	54102
+	ROR	R0
+	ROL	R1
+	SWAB	R1
+	XOR	R1,R0
+	MOV	R0,SEED1
+	MOV	R1,SEED2
+	RETURN
 
-PpuStart:
-	bic	#^B110, @#177710
-	mov	#110200, @#177716
-	trap	0
-	br	PpuStart
-PpuEnd:
+; LFSR
+Random: clc
+	ror  (PC)+
+Lfsr00: .word  126341     ; 0ACE1
+	bcc  Lfsr03
+	mov  (PC)+, R0
+Lfsr01: .word  132000    ; 0B400
+	xor  R0, Lfsr00
+Lfsr03: mov  Lfsr00, R0
+	return
 
+RandSeed1:	.word	0
+RandSeed2:	.word	0
+TempRand1:	.word	0
+TempRand2:	.word	0
 
-; //////////////////////////////////////////////////////////////////////////////
-; // PPU code end
-; //////////////////////////////////////////////////////////////////////////////
-
+; Random from C64 version
+NextRandom:
+	; set TempRand1
+	mov	RandSeed1, R0			; LDA RandSeed1
+	rorb	R0				; ROR
+        rorb	R0				; ROR
+        bic	#^B1111111101111111, R0		; AND #$80
+        movb	R0, TempRand1			; STA TempRand1
+	; set TempRand2
+	mov	RandSeed2, R0			; LDA RandSeed2
+	rorb	R0				; ROR
+	bic	#^B1111111110000000, R0		; AND #$7F
+	movb	R0, TempRand2			; STA TempRand2
+	;
+	movb	RandSeed2, R0			; LDA RandSeed2
+	rorb	R0				; ROR
+	rorb	R0				; ROR
+	bic	#^B1111111101111111, R0		; AND #$80
+						; CLC
+	add	RandSeed2, R0			; ADC RandSeed2
+	cmp	#377, R0			; *** put C flag - cause we havent ADDB
+	bic	#^B1111111100000000, R0		; *** C flag not changing with BIC
+	adc	R0				; 
+	add	#23, R0				; ADC #0x13
+	cmp	#377, R0			; *** again put C flag, but now not need to clean upper
+	movb	R0, RandSeed2			; STA RandSeed2
+	mov	RandSeed1, R0			; LDA RandSeed1
+	adc	R0				;
+	add	TempRand1, R0			; ADC TempRand1
+	cmp	#377, R0			;
+	adc	R0				;
+	add	TempRand2, R0			; ADC TempRand2
+	movb	R0, RandSeed1			; STA RandSeed1
+	return
 
 	.end	Start

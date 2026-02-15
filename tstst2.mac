@@ -1,0 +1,36 @@
+	.title	MAIN
+	.mcall	.print .exit
+	.enabl	LC, AMA
+	
+	.asect
+	.=1000
+
+Start:	mtps	#200
+	; flush anything that was in RS-232
+	mov	#176570, R4
+	mov	#176572, R5
+10$:	tstb	(R4)
+	bpl	20$
+	tst	(R5)
+	br	10$
+20$:	; set int vect
+	mov	#Int370, @#370
+	; allow RS-232 int
+	bis	#100, @#176570
+	; all done
+	mtps	#0
+Main:	tst	Int370+2
+	beq	Main
+	clr	Int370+2
+	.print	#MsgWasInt
+	br	Main
+
+Int370:	inc	#000000
+	tst	@#176572
+	rti
+
+MsgWasInt:
+	.asciz	"Int370"
+	.even
+
+	.end	Start

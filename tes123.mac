@@ -1,0 +1,13 @@
+;
+;   MACRO-11  example.
+;
+  .MCall  .Exit, .Print
+
+START:
+  .Print  #Mes
+  .Exit
+
+Mes:  .ASCIZ  \Hello !!!\
+
+.End  START
+;

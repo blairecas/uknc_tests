@@ -1,6 +1,6 @@
 @echo off
 
-set NAME=tstst1
+set NAME=tstst2
 
 echo.
 echo ===========================================================================
@@ -10,12 +10,11 @@ php -f ..\scripts\preprocess.php %NAME%.mac
 if %ERRORLEVEL% NEQ 0 ( exit /b )
 ..\scripts\macro11 -ysl 32 -yus -m ..\scripts\sysmac.sml -l _%NAME%.lst _%NAME%.mac
 if %ERRORLEVEL% NEQ 0 ( exit /b )
-php -f ..\scripts\lst2bin.php _%NAME%.lst ./release/%NAME%.bin bbk 1000
+php -f ..\scripts\lst2bin.php _%NAME%.lst ./release/%NAME%.sav sav
 if %ERRORLEVEL% NEQ 0 ( exit /b )
 
 del _%NAME%.mac
 del _%NAME%.lst
 
-..\scripts\bkbin2sav .\release\%NAME%.bin 
 ..\scripts\rt11dsk d uktest.dsk %NAME%.sav >NUL
 ..\scripts\rt11dsk a uktest.dsk .\release\%NAME%.sav >NUL
