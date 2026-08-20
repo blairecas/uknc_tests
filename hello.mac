@@ -1,0 +1,7 @@
+	.title	HELLO
+
+START:	xor	R0, R0
+1:	sob	R0, .
+	emt	350
+
+	.end START

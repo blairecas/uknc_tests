@@ -19,38 +19,32 @@ Start:
 	call	SomeLine
 
 	; C64
-;	mov	#80.*60., R3	
-;20$:	call	NextRandom
-;	clr	R0
-;	bisb	RandSeed1, R0
-;	swab	R0
-;	bisb	RandSeed2, R0	
-;	mov	R0, (R5)
-;	inc	(R4)
-;	sob	R3, 20$
+	mov	#80.*60., R3	
+20$:	call	NextRandom
+	clr	R0
+	bisb	RandSeed1, R0
+	swab	R0
+	bisb	RandSeed2, R0	
+	mov	R0, (R5)
+	inc	(R4)
+	sob	R3, 20$
+	call	SomeLine
 
 	; Nikita's
 	mov	#80.*60., R1
-20$:	call	LA270
+30$:	call	LA270
 	mov	R3, (R5)
 	inc	(R4)
-	sob	R1, 20$
+	sob	R1, 30$
 	call	SomeLine
 
 	; Manwe's
 	mov	#80.*60., R3	
-30$:	call	RND
+40$:	call	RND
 	mov	R0, (R5)
 	inc	(R4)
-	sob	R3, 30$
+	sob	R3, 40$
 	call	SomeLine
-
-	; xorshift
-	mov	#80.*60., R2	
-40$:	call	XorShift
-	mov	R0, (R5)
-	inc	(R4)
-	sob	R2, 40$
 
 	br .
 

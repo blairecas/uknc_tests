@@ -1,0 +1,11 @@
+	.title	TEST
+	.enabl  AMA
+	.asect
+	.=1000
+
+Label:	.word	0
+	
+Start:	mov	@Label, R5
+
+	.end	Start
+	

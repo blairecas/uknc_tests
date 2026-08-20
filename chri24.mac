@@ -1,44 +1,11 @@
 	.list	MEB
-	.mcall	.print .exit
+	.mcall	.print
 	
-Start:	.print	#Msg0
-	mov	#3, R5
-20$:	.print	#Msg1
-	dec	R5
-	beq	99$
-	mov	#8., R4
-40$:	.print	#Msg2
-	sob	R4, 40$
-	br	20$
-99$:	.exit
-
-Msg0:	.asciz	<11>"\o/"
-Msg1:	.asciz	"+--------+--------+"
-Msg2:	.asciz	"!"<11>" !"<11>"  !"
+Start:	br	.
+	.print	#Msg0
+	br	.
+	halt
+Msg0:	.asciz 	"What a.."
 	.even
-
-End:		
-
-;        \o/
-;+--------+--------+
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;+--------+--------+
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;!        !        !
-;+--------+--------+
-
 
 	.end	Start
